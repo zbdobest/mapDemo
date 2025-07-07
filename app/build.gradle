@@ -1,0 +1,58 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+}
+
+android {
+    namespace 'com.zb.demo.map'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.zb.demo.map"
+        minSdk 24
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDir 'libs'
+        }
+    }
+
+    buildTypes {
+        debug {
+
+        }
+        
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+}
+
+dependencies {
+
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.appcompat
+    implementation libs.material
+    // 百度地图SDK
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Map:7.6.4'
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Search:7.6.4'
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Location:9.1.8'
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Util:7.6.4'
+    testImplementation libs.junit
+    androidTestImplementation libs.androidx.junit
+    androidTestImplementation libs.androidx.espresso.core
+}
