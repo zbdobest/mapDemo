@@ -1,11 +1,19 @@
 package com.zb.demo.map.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import com.baidu.location.BDAbstractLocationListener
 import com.baidu.location.BDLocation
 import com.baidu.location.LocationClient
@@ -36,6 +44,7 @@ import com.baidu.mapapi.search.route.TransitRouteResult
 import com.baidu.mapapi.search.route.WalkingRouteResult
 import com.baidu.mapapi.utils.DistanceUtil
 import com.zb.demo.map.R
+import com.zb.demo.map.utils.PermissionUtils
 
 /**
  *
@@ -44,9 +53,6 @@ import com.zb.demo.map.R
  * @version 1.0
  * @since 2025/7/6
  */
-
-
-
 class MainActivity : AppCompatActivity(), BaiduMap.OnMapLoadedCallback, BaiduMap.OnMapClickListener {
 
     private lateinit var mBaiduMap: BaiduMap
@@ -69,9 +75,31 @@ class MainActivity : AppCompatActivity(), BaiduMap.OnMapLoadedCallback, BaiduMap
     // 路线规划
     private lateinit var routePlanSearch: RoutePlanSearch
 
+    // 权限请求启动器（替代 onRequestPermissionsResult）
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+
+        if (allGranted) {
+            onPermissionsGranted()
+        } else {
+            val shouldShowRationale = permissions.keys.any {
+                ActivityCompat.shouldShowRequestPermissionRationale(this, it)
+            }
+
+            if (shouldShowRationale) {
+                showPermissionDeniedDialog()
+            } else {
+                showPermissionPermanentlyDeniedDialog()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
 
         // 初始化地图
         mMapView = findViewById(R.id.map_view)
@@ -98,9 +126,8 @@ class MainActivity : AppCompatActivity(), BaiduMap.OnMapLoadedCallback, BaiduMap
         btnReset.setOnClickListener {
             resetNavigation()
         }
-
-        // 初始化定位服务
-        initLocation()
+        // 检查并请求权限
+        checkAndRequestPermissions()
 
         // 初始化路线规划
         routePlanSearch = RoutePlanSearch.newInstance()
@@ -321,6 +348,11 @@ class MainActivity : AppCompatActivity(), BaiduMap.OnMapLoadedCallback, BaiduMap
 
     override fun onResume() {
         super.onResume()
+        // 当用户从设置页面返回时检查权限
+        if (wasPermissionDenied) {
+            checkAndRequestPermissions()
+            wasPermissionDenied = false
+        }
         mMapView.onResume()
     }
 
@@ -334,5 +366,179 @@ class MainActivity : AppCompatActivity(), BaiduMap.OnMapLoadedCallback, BaiduMap
         locationClient.stop()
         mMapView.onDestroy()
         routePlanSearch.destroy()
+    }
+
+    /**
+     * 检查并请求所需权限
+     */
+    private fun checkAndRequestPermissions() {
+        // 检查位置权限
+        if (!PermissionUtils.hasPermissions(this, PermissionUtils.LOCATION_PERMISSIONS)) {
+            requestLocationPermission()
+            return
+        }
+
+        // 检查文件权限（如果需要）
+        if (needsFilePermission() && !hasFilePermissions()) {
+            requestFilePermission()
+            return
+        }
+
+        // 所有权限已授予，启动应用
+        onAllPermissionsGranted()
+    }
+
+    /**
+     * 请求位置权限
+     */
+    private fun requestLocationPermission() {
+        if (PermissionUtils.shouldShowRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
+            showLocationPermissionRationale()
+        } else {
+            requestPermissionLauncher.launch(PermissionUtils.LOCATION_PERMISSIONS)
+        }
+    }
+
+    /**
+     * 显示位置权限说明
+     */
+    private fun showLocationPermissionRationale() {
+        AlertDialog.Builder(this)
+            .setTitle("需要位置权限")
+            .setMessage("导航功能需要访问您的位置信息，以提供准确的路线规划和实时导航服务。")
+            .setPositiveButton("确定") { _, _ ->
+                requestPermissionLauncher.launch(PermissionUtils.LOCATION_PERMISSIONS)
+            }
+            .setNegativeButton("取消") { _, _ ->
+                Toast.makeText(this, "位置权限被拒绝，导航功能无法使用", Toast.LENGTH_LONG).show()
+            }
+            .show()
+    }
+
+    /**
+     * 检查是否需要文件权限
+     */
+    private fun needsFilePermission(): Boolean {
+        // 根据应用功能决定是否需要文件权限
+        // 例如：如果应用需要保存导航历史或截图
+        return true
+    }
+
+    /**
+     * 检查文件权限状态
+     */
+    private fun hasFilePermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ 使用作用域存储，不需要传统文件权限
+            true
+        } else {
+            PermissionUtils.hasPermissions(this, PermissionUtils.LEGACY_FILE_PERMISSIONS)
+        }
+    }
+
+    /**
+     * 请求文件权限
+     */
+    private fun requestFilePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ 不需要请求传统文件权限
+            return
+        }
+
+        val permissionsToRequest = PermissionUtils.LEGACY_FILE_PERMISSIONS.filter {
+            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
+
+        if (permissionsToRequest.isNotEmpty()) {
+            if (permissionsToRequest.any {
+                    PermissionUtils.shouldShowRationale(this, it)
+                }) {
+                showFilePermissionRationale()
+            } else {
+                requestPermissionLauncher.launch(permissionsToRequest)
+            }
+        }
+    }
+
+    /**
+     * 显示文件权限说明
+     */
+    private fun showFilePermissionRationale() {
+        AlertDialog.Builder(this)
+            .setTitle("需要存储权限")
+            .setMessage("应用需要访问存储空间来保存导航历史和行程摘要。")
+            .setPositiveButton("确定") { _, _ ->
+                requestPermissionLauncher.launch(PermissionUtils.LEGACY_FILE_PERMISSIONS)
+            }
+            .setNegativeButton("取消") { _, _ ->
+                Toast.makeText(this, "存储权限被拒绝，部分功能可能受限", Toast.LENGTH_LONG).show()
+                onAllPermissionsGranted()
+            }
+            .show()
+    }
+
+    /**
+     * 权限被拒绝时的处理
+     */
+    private fun showPermissionDeniedDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("权限被拒绝")
+            .setMessage("您拒绝了必要的权限，相关功能将无法使用。")
+            .setPositiveButton("重试") { _, _ -> checkAndRequestPermissions() }
+            .setNegativeButton("取消") { _, _ -> finish() }
+            .show()
+    }
+
+    /**
+     * 权限被永久拒绝时的处理
+     */
+    private fun showPermissionPermanentlyDeniedDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("权限被永久拒绝")
+            .setMessage("您已永久拒绝必要的权限。请在系统设置中手动授予权限。")
+            .setPositiveButton("打开设置") { _, _ -> openAppSettings() }
+            .setNegativeButton("取消") { _, _ -> finish() }
+            .setCancelable(false)
+            .show()
+    }
+
+    /**
+     * 打开应用设置页面
+     */
+    private fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+        }
+        startActivity(intent)
+    }
+
+    /**
+     * 位置权限已授予
+     */
+    private fun onPermissionsGranted() {
+        // 继续检查其他权限
+        checkAndRequestPermissions()
+    }
+
+    /**
+     * 所有权限已授予
+     */
+    private fun onAllPermissionsGranted() {
+        // 启动应用主功能
+        initializeMapAndLocation()
+    }
+
+    /**
+     * 初始化地图和位置服务
+     */
+    private fun initializeMapAndLocation() {
+        // 初始化定位服务
+        initLocation()
+    }
+
+
+    companion object {
+        // 标记权限是否被拒绝
+        var wasPermissionDenied = false
     }
 }
